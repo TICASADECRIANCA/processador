@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Integrador Cardápio Web - Oficial</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .status-header { background: #27ae60; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: bold; }
+        #log { background: #1e272e; color: #d2dae2; padding: 20px; border-radius: 8px; height: 350px; overflow-y: auto; font-family: monospace; font-size: 13px; }
+        .success { color: #55efc4; }
+        .error { color: #ff7675; }
+        button { background: #27ae60; color: white; border: none; padding: 15px; border-radius: 8px; cursor: pointer; width: 100%; font-size: 16px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="status-header">MODO PRODUÇÃO - TOKEN ATIVO</div>
+    <h2>📦 Importador de Pedidos</h2>
+    <p>Utilizando Token: <code>p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH</code></p>
+    
+    <label>Selecione o seu arquivo CSV:</label><br>
+    <input type="file" id="csvInput" accept=".csv" style="margin: 20px 0;"><br>
+    
+    <button onclick="processarEnvio()">🚀 Iniciar Importação e Faturamento</button>
+
+    <div id="log">Aguardando ficheiro...</div>
+</div>
+
+<script>
+    const API_KEY = "p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH";
+    const logElement = document.getElementById('log');
+
+    function addLog(msg, type = '') {
+        logElement.innerHTML += `<div class="${type}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        logElement.scrollTop = logElement.scrollHeight;
+    }
+
+    async function processarEnvio() {
+        const file = document.getElementById('csvInput').files[0];
+        if (!file) return alert("Por favor, selecione o arquivo CSV!");
+
+        logElement.innerHTML = "Lendo arquivo...<br>";
+
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: async (results) => {
+                addLog(`Encontrados ${results.data.length} pedidos.`);
+                for (const row of results.data) {
+                    await enviarPedido(row);
+                }
+                addLog("<b>Processo concluído!</b>");
+            }
+        });
+    }
+
+    async function enviarPedido(dados) {
+        // Endpoint exato de produção para criação
+        const URL_POST = "https://integracao.cardapioweb.com/pedidos";
+
+        // Montagem seguindo rigorosamente a estrutura do Order.json
+        const payload = {
+            "order_type": dados.tipo || "delivery", // Exemplos: delivery, takeout, onsite
+            "order_timing": "immediate", // Imediato conforme o JSON
+            "customer": {
+                "name": dados.cliente_nome,
+                "phone": dados.cliente_telefone
+            },
+            "items": [{
+                "name": dados.produto_nome,
+                "quantity": parseFloat(dados.quantidade) || 1,
+                "unit_price": parseFloat(dados.preco) || 0,
+                "total_price": parseFloat(dados.total) || 0,
+                "kind": "regular_item" // Obrigatório no esquema
+            }],
+            "payments": [{
+                "total": parseFloat(dados.total) || 0,
+                "payment_method": dados.metodo_pagamento || "pix", // Exemplos: pix, money, credit_card
+                "payment_type": "offline",
+                "status": "pending"
+            }],
+            "total": parseFloat(dados.total) || 0
+        };
+
+        try {
+            const response = await fetch(URL_POST, {
+                method: 'POST',
+                headers: {
+                    'X-API-KEY': API_KEY,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                const resJson = await response.json();
+                addLog(`✅ Criado: ${dados.cliente_nome} (ID: ${resJson.id})`, 'success');
+                
+                // FATURAR: Muda status para 'confirmed' como no exemplo do JSON
+                await fetch(`${URL_POST}/${resJson.id}/status`, {
+                    method: 'PATCH',
+                    headers: { 'X-API-KEY': API_KEY, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ "status": "confirmed" })
+                });
+                addLog(`   ↳ 💰 Status: CONFIRMADO`, 'success');
+            } else {
+                const errText = await response.text();
+                addLog(`❌ Erro em ${dados.cliente_nome}: ${errText}`, 'error');
+            }
+        } catch (e) {
+            addLog(`💥 Erro de Rede: ${e.message}. Verifique a extensão Allow CORS!`, 'error');
+        }
+    }
+</script>
+</body>
+</html>
