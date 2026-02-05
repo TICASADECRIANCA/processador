@@ -2,113 +2,108 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Integrador Cardápio Web - Oficial</title>
+    <title>Integrador Cardápio Web</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <style>
-        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        .status-header { background: #27ae60; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: bold; }
-        #log { background: #1e272e; color: #d2dae2; padding: 20px; border-radius: 8px; height: 350px; overflow-y: auto; font-family: monospace; font-size: 13px; }
-        .success { color: #55efc4; }
-        .error { color: #ff7675; }
-        button { background: #27ae60; color: white; border: none; padding: 15px; border-radius: 8px; cursor: pointer; width: 100%; font-size: 16px; font-weight: bold; }
+        body { font-family: sans-serif; background: #f4f7f6; padding: 20px; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
+        .btn-import { background: #27ae60; color: white; border: none; padding: 15px; border-radius: 8px; cursor: pointer; width: 100%; font-size: 16px; font-weight: bold; }
+        #log { margin-top: 20px; background: #263238; color: #cfd8dc; padding: 15px; border-radius: 8px; height: 350px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 13px; }
+        .success { color: #81c784; }
+        .error { color: #ff8a65; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div class="status-header">MODO PRODUÇÃO - TOKEN ATIVO</div>
-    <h2>📦 Importador de Pedidos</h2>
-    <p>Utilizando Token: <code>p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH</code></p>
-    
-    <label>Selecione o seu arquivo CSV:</label><br>
-    <input type="file" id="csvInput" accept=".csv" style="margin: 20px 0;"><br>
-    
-    <button onclick="processarEnvio()">🚀 Iniciar Importação e Faturamento</button>
-
-    <div id="log">Aguardando ficheiro...</div>
+    <h2>🚀 Importador de Pedidos - Produção</h2>
+    <input type="file" id="csvFile" accept=".csv" style="margin: 20px 0;">
+    <button class="btn-import" onclick="processar()">🚀 Importar e Faturar</button>
+    <div id="log">Aguardando início...</div>
 </div>
 
 <script>
-    const API_KEY = "p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH";
     const logElement = document.getElementById('log');
+    const TOKEN = "p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH";
 
     function addLog(msg, type = '') {
         logElement.innerHTML += `<div class="${type}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
         logElement.scrollTop = logElement.scrollHeight;
     }
 
-    async function processarEnvio() {
-        const file = document.getElementById('csvInput').files[0];
-        if (!file) return alert("Por favor, selecione o arquivo CSV!");
+    async function processar() {
+        const file = document.getElementById('csvFile').files[0];
+        if (!file) return alert("Selecione o CSV!");
 
-        logElement.innerHTML = "Lendo arquivo...<br>";
+        logElement.innerHTML = "<b>Iniciando Processamento...</b><br>";
 
         Papa.parse(file, {
             header: true,
             skipEmptyLines: true,
             complete: async (results) => {
                 addLog(`Encontrados ${results.data.length} pedidos.`);
-                for (const row of results.data) {
-                    await enviarPedido(row);
+                for (const linha of results.data) {
+                    await enviarParaAPI(linha);
                 }
-                addLog("<b>Processo concluído!</b>");
             }
         });
     }
 
-   async function enviarPedido(row, token) {
-    const URL = "https://integracao.cardapioweb.com/pedidos";
-    
-    // Montando o objeto exatamente como o Order.json exige
-    const payload = {
-        order_type: row.tipo || "delivery", // delivery, takeout, onsite
-        order_timing: "immediate", // conforme especificação
-        customer: {
-            name: row.cliente_nome,
-            phone: row.cliente_telefone
-        },
-        items: [{
-            name: row.produto_nome,
-            quantity: parseFloat(row.quantidade) || 1,
-            unit_price: parseFloat(row.preco) || 0,
-            total_price: parseFloat(row.total) || 0,
-            kind: "regular_item" // Obrigatório conforme o esquema técnico
-        }],
-        payments: [{
-            total: parseFloat(row.total) || 0,
-            payment_method: row.metodo_pagamento || "pix", // pix, money, credit_card
-            payment_type: "offline", // pagamento na entrega
-            status: "pending" // status inicial obrigatório
-        }],
-        total: parseFloat(row.total) || 0
-    };
+    async function enviarParaAPI(row) {
+        const URL = "https://integracao.cardapioweb.com/pedidos";
+        
+        const payload = {
+            order_type: row.tipo || "delivery",
+            order_timing: "immediate",
+            customer: { name: row.cliente_nome, phone: row.cliente_telefone },
+            items: [{
+                name: row.produto_nome,
+                quantity: parseFloat(row.quantidade) || 1,
+                unit_price: parseFloat(row.preco) || 0,
+                total_price: parseFloat(row.total) || 0,
+                kind: "regular_item"
+            }],
+            payments: [{
+                total: parseFloat(row.total) || 0,
+                payment_method: row.metodo_pagamento || "pix",
+                payment_type: "offline",
+                status: "pending"
+            }],
+            total: parseFloat(row.total) || 0
+        };
 
-    try {
-        const res = await fetch(URL, {
-            method: 'POST',
-            headers: {
-                'X-API-KEY': 'p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH',
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(payload) // AQUI ESTAVA O ERRO: agora usamos 'payload'
-        });
+        try {
+            const res = await fetch(URL, {
+                method: 'POST',
+                headers: {
+                    'X-API-KEY': TOKEN,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
 
-        const data = await res.json();
-
-        if (res.ok) {
-            addLog(`✅ Pedido Criado: ${row.cliente_nome} (ID: ${data.id})`, 'success');
-            await faturar(data.id, token);
-        } else {
-            addLog(`❌ Erro da API: ${JSON.stringify(data)}`, 'error');
+            if (res.ok) {
+                const data = await res.json();
+                addLog(`✅ Criado: ${row.cliente_nome} (ID: ${data.id})`, 'success');
+                await faturar(data.id);
+            } else {
+                const erro = await res.text();
+                addLog(`❌ Erro API: ${erro}`, 'error');
+            }
+        } catch (e) {
+            addLog(`💥 Erro de Rede: ${e.message}`, 'error');
         }
-    } catch (e) {
-        addLog(`💥 Erro de Rede: ${e.message}`, 'error');
     }
-}
+
+    async function faturar(id) {
+        await fetch(`https://integracao.cardapioweb.com/pedidos/${id}/status`, {
+            method: 'PATCH',
+            headers: { 'X-API-KEY': TOKEN, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'confirmed' })
+        });
+        addLog(`   ↳ 💰 Faturado!`, 'success');
+    }
 </script>
 </body>
-
 </html>
-
