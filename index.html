@@ -57,65 +57,58 @@
         });
     }
 
-    async function enviarPedido(dados) {
-        // Endpoint exato de produção para criação
-        const URL_POST = "https://integracao.cardapioweb.com/pedidos";
+   async function enviarPedido(row, token) {
+    const URL = "https://integracao.cardapioweb.com/pedidos";
+    
+    // Montando o objeto exatamente como o Order.json exige
+    const payload = {
+        order_type: row.tipo || "delivery", // delivery, takeout, onsite
+        order_timing: "immediate", // conforme especificação
+        customer: {
+            name: row.cliente_nome,
+            phone: row.cliente_telefone
+        },
+        items: [{
+            name: row.produto_nome,
+            quantity: parseFloat(row.quantidade) || 1,
+            unit_price: parseFloat(row.preco) || 0,
+            total_price: parseFloat(row.total) || 0,
+            kind: "regular_item" // Obrigatório conforme o esquema técnico
+        }],
+        payments: [{
+            total: parseFloat(row.total) || 0,
+            payment_method: row.metodo_pagamento || "pix", // pix, money, credit_card
+            payment_type: "offline", // pagamento na entrega
+            status: "pending" // status inicial obrigatório
+        }],
+        total: parseFloat(row.total) || 0
+    };
 
-        // Montagem seguindo rigorosamente a estrutura do Order.json
-        const payload = {
-            "order_type": dados.tipo || "delivery", // Exemplos: delivery, takeout, onsite
-            "order_timing": "immediate", // Imediato conforme o JSON
-            "customer": {
-                "name": dados.cliente_nome,
-                "phone": dados.cliente_telefone
+    try {
+        const res = await fetch(URL, {
+            method: 'POST',
+            headers: {
+                'X-API-KEY': 'p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
-            "items": [{
-                "name": dados.produto_nome,
-                "quantity": parseFloat(dados.quantidade) || 1,
-                "unit_price": parseFloat(dados.preco) || 0,
-                "total_price": parseFloat(dados.total) || 0,
-                "kind": "regular_item" // Obrigatório no esquema
-            }],
-            "payments": [{
-                "total": parseFloat(dados.total) || 0,
-                "payment_method": dados.metodo_pagamento || "pix", // Exemplos: pix, money, credit_card
-                "payment_type": "offline",
-                "status": "pending"
-            }],
-            "total": parseFloat(dados.total) || 0
-        };
+            body: JSON.stringify(payload) // AQUI ESTAVA O ERRO: agora usamos 'payload'
+        });
 
-        try {
-        const response = await fetch("https://integracao.cardapioweb.com/pedidos", {
-    method: 'POST',
-    headers: {
-        'X-API-KEY': 'p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH',
-        'Content-Type': 'application/json',
-        'Accept': 'application/json' // OBRIGATÓRIO conforme a especificação técnica
-    },
-    body: JSON.stringify(pedido)
-});
+        const data = await res.json();
 
-            if (response.ok) {
-                const resJson = await response.json();
-                addLog(`✅ Criado: ${dados.cliente_nome} (ID: ${resJson.id})`, 'success');
-                
-                // FATURAR: Muda status para 'confirmed' como no exemplo do JSON
-                await fetch(`${URL_POST}/${resJson.id}/status`, {
-                    method: 'PATCH',
-                    headers: { 'X-API-KEY': API_KEY, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ "status": "confirmed" })
-                });
-                addLog(`   ↳ 💰 Status: CONFIRMADO`, 'success');
-            } else {
-                const errText = await response.text();
-                addLog(`❌ Erro em ${dados.cliente_nome}: ${errText}`, 'error');
-            }
-        } catch (e) {
-            addLog(`💥 Erro de Rede: ${e.message}. Verifique a extensão Allow CORS!`, 'error');
+        if (res.ok) {
+            addLog(`✅ Pedido Criado: ${row.cliente_nome} (ID: ${data.id})`, 'success');
+            await faturar(data.id, token);
+        } else {
+            addLog(`❌ Erro da API: ${JSON.stringify(data)}`, 'error');
         }
+    } catch (e) {
+        addLog(`💥 Erro de Rede: ${e.message}`, 'error');
     }
+}
 </script>
 </body>
 
 </html>
+
