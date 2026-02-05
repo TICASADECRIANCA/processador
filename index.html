@@ -50,7 +50,7 @@
     }
 
     async function enviarParaAPI(row) {
-        const URL = "https://integracao.cardapioweb.com/pedidos";
+        const URL = "https://integracao.cardapioweb.com/v1/pedidos";
         
         const payload = {
             order_type: row.tipo || "delivery",
@@ -107,3 +107,4 @@
 </script>
 </body>
 </html>
+
