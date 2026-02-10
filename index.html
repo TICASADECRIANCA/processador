@@ -102,35 +102,59 @@
         } catch (e) { writeLog("Erro: " + e.message, "err"); }
     }
 
-    async function mudarStatus(id, status, label) {
-        // Truque: Adicionamos um parâmetro aleatório no final da URL para o navegador não "cachear" ou bloquear o PATCH
-        const url = `https://integracao.cardapioweb.com/api/partner/v1/orders/${id}/status?t=${Date.now()}`;
+async function mudarStatus(id, status, label) {
+        // Mudamos a estratégia: Tentamos enviar como POST com um cabeçalho que pede o PATCH
+        const url = `https://integracao.cardapioweb.com/api/partner/v1/orders/${id}/status`;
         
         try {
             const res = await fetch(url, {
-                method: 'PATCH',
-                mode: 'cors', // Força o modo CORS explicitamente
+                method: 'POST', // Navegadores aceitam POST muito melhor que PATCH
                 headers: { 
                     'X-API-KEY': API_KEY, 
                     'X-PARTNER-KEY': PARTNER_KEY, 
                     'Content-Type': 'application/json',
+                    'X-HTTP-Method-Override': 'PATCH', // Cabeçalho padrão para emular PATCH
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify({ "status": status })
             });
 
-            if (res.ok) {
-                writeLog(`   ↳ ✅ ${label}`, 'step');
-                return true;
-            } else {
-                writeLog(`   ↳ ❌ Erro API no ${label}`, 'err');
-                return false;
+            // Se o POST falhar (porque a API não aceita override), tentamos o PATCH original
+            // mas com uma configuração de 'no-cors' para tentar forçar a saída
+            if (!res.ok) {
+                 return await tentativaFinalPatch(url, status, label);
             }
+
+            writeLog(`   ↳ ✅ ${label}`, 'step');
+            return true;
         } catch (e) {
-            writeLog(`   ↳ 🔄 Erro de Rede no ${label}. Verifique a extensão Allow CORS!`, 'err');
+            return await tentativaFinalPatch(url, status, label);
+        }
+    }
+
+    async function tentativaFinalPatch(url, status, label) {
+        try {
+            const res = await fetch(url, {
+                method: 'PATCH',
+                headers: { 
+                    'X-API-KEY': API_KEY, 
+                    'X-PARTNER-KEY': PARTNER_KEY, 
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ "status": status })
+            });
+            if (res.ok) {
+                writeLog(`   ↳ ✅ ${label} (via Patch Direto)`, 'step');
+                return true;
+            }
+            writeLog(`   ↳ ❌ Erro de transição no ${label}`, 'err');
+            return false;
+        } catch (err) {
+            writeLog(`   ↳ 💥 Bloqueio de Segurança no ${label}.`, 'err');
             return false;
         }
     }
 </script>
 </body>
 </html>
+
