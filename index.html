@@ -5,23 +5,30 @@
     <title>Integrador CDC - Cardápio Web</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; color: #2d3436; }
         .card { max-width: 850px; margin: auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .btn { background: #27ae60; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; margin: 5px 0; width: 100%; }
+        h2 { color: #27ae60; margin-top: 0; }
+        .btn { background: #27ae60; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; margin: 5px 0; width: 100%; transition: 0.3s; }
+        .btn:hover { background: #219150; }
         .btn-diag { background: #2980b9; }
-        #log { margin-top: 20px; background: #1e272e; color: #d2dae2; padding: 15px; border-radius: 8px; height: 450px; overflow-y: auto; font-family: monospace; font-size: 12px; }
-        .ok { color: #55efc4; } .err { color: #ff7675; } .info { color: #f1c40f; } .step { color: #3498db; }
+        .btn-diag:hover { background: #2471a3; }
+        #log { margin-top: 20px; background: #1e272e; color: #d2dae2; padding: 15px; border-radius: 8px; height: 450px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6; }
+        .ok { color: #55efc4; font-weight: bold; }
+        .err { color: #ff7675; }
+        .info { color: #f1c40f; }
+        .step { color: #3498db; border-left: 2px solid #3498db; padding-left: 10px; margin: 5px 0; }
     </style>
 </head>
 <body>
+
 <div class="card">
-    <h2>🚀 Integrador CDC </h2>
-    <p>Status: <b>Correção de Erro de Rede (CORS PATCH)</b></p>
+    <h2>🚀 Importador CDC </h2>
+    <p>Status: <b>Pronto para Produção (Bypass CORS)</b></p>
     
-    <button class="btn btn-diag" onclick="consultarPagamentos()">1. Validar Meios de Pagamento</button>
-    <hr>
-    <input type="file" id="csvFile" accept=".csv" style="width: 100%; margin: 10px 0;">
-    <button class="btn" onclick="iniciar()">2. Iniciar Importação</button>
+    <button class="btn btn-diag" onclick="consultarPagamentos()">1. Sincronizar Meios de Pagamento</button>
+    <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+    <input type="file" id="csvFile" accept=".csv" style="width: 100%; margin-bottom: 10px;">
+    <button class="btn" onclick="iniciar()">2. Iniciar Fluxo Completo</button>
     
     <div id="log">Aguardando comando...</div>
 </div>
@@ -33,46 +40,53 @@
     let METODO_PAGAMENTO_ID = 103;
 
     function writeLog(msg, type = '') {
-        logDiv.innerHTML += `<div class="${type}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        const time = new Date().toLocaleTimeString();
+        logDiv.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`;
         logDiv.scrollTop = logDiv.scrollHeight;
     }
 
     async function consultarPagamentos() {
-        writeLog("Sincronizando métodos...", "info");
+        writeLog("Consultando métodos ativos no seu painel...", "info");
         try {
             const res = await fetch("https://integracao.cardapioweb.com/api/partner/v1/merchant/payment_methods", {
                 headers: { 'X-API-KEY': API_KEY, 'X-PARTNER-KEY': PARTNER_KEY }
             });
             const data = await res.json();
             data.forEach(m => {
-                writeLog(`Disponível: ID ${m.id} (${m.name})`, "ok");
+                writeLog(`✅ ID ${m.id}: ${m.name} identificado.`, "ok");
                 METODO_PAGAMENTO_ID = m.id; 
             });
-        } catch (e) { writeLog("Erro na consulta: " + e.message, "err"); }
+            writeLog("Sistema configurado com o último ID encontrado.", "info");
+        } catch (e) {
+            writeLog("Erro na consulta: " + e.message + ". Verifique se a extensão Allow CORS está LIGADA.", "err");
+        }
     }
 
     async function iniciar() {
         const file = document.getElementById('csvFile').files[0];
-        if (!file) return alert("Selecione o arquivo CSV.");
+        if (!file) return alert("Por favor, selecione o arquivo CSV primeiro.");
+        
         Papa.parse(file, {
-            header: true, skipEmptyLines: true,
+            header: true,
+            skipEmptyLines: true,
             complete: async (results) => {
-                writeLog(`--- Iniciando ${results.data.length} pedidos ---`, "info");
+                writeLog(`--- Iniciando lote de ${results.data.length} pedidos ---`, "info");
                 for (let i = 0; i < results.data.length; i++) {
-                    await executarFluxo4Passos(results.data[i], i + 1);
+                    await processoPrincipal(results.data[i], i + 1);
                 }
             }
         });
     }
 
-    async function executarFluxo4Passos(row, index) {
+    async function processoPrincipal(row, index) {
         const total = parseFloat(row.total) || 0;
         const nome = row.cliente_nome || "Cliente";
         const order_id = "IMP_" + Date.now() + "_" + index;
 
+        // PASSO 1: CRIAÇÃO DO PEDIDO
         const payload = {
             "order_id": order_id,
-            "display_id": (700 + index).toString(),
+            "display_id": (800 + index).toString(),
             "order_type": "takeout",
             "customer": {
                 "name": nome,
@@ -84,7 +98,9 @@
         };
 
         try {
-            writeLog(`📦 [${nome}] Passo 1: Criando...`);
+            writeLog(`-------------------------------------------`);
+            writeLog(`📦 [${nome}] Passo 1: Criando pedido...`);
+            
             const res = await fetch("https://integracao.cardapioweb.com/api/partner/v1/orders", {
                 method: 'POST',
                 headers: { 
@@ -98,34 +114,39 @@
             if (res.status === 201) {
                 const data = await res.json();
                 const apiId = data.id;
-                writeLog(`✅ Passo 1 OK (ID: ${apiId})`, 'ok');
+                writeLog(`✅ Passo 1 OK: Criado com ID ${apiId}`, 'ok');
 
-                // Aumentando o tempo de espera para o banco de dados processar
+                // Pausas maiores para evitar erro de rede/conflito no servidor
                 await new Promise(r => setTimeout(r, 2000));
+                
+                // PASSO 2, 3 e 4
+                const sequencia = [
+                    { status: "confirmed", label: "Passo 2: ACEITO" },
+                    { status: "ready", label: "Passo 3: PRONTO" },
+                    { status: "closed", label: "Passo 4: CONCLUÍDO" }
+                ];
 
-                // Sequência de Status
-                const ok2 = await mudarStatus(apiId, "confirmed", "Passo 2: ACEITO");
-                if (ok2) {
+                for (const etapa of sequencia) {
+                    const sucesso = await mudarStatusComRetry(apiId, etapa.status, etapa.label);
+                    if (!sucesso) break; // Para o fluxo se um passo falhar
                     await new Promise(r => setTimeout(r, 1500));
-                    const ok3 = await mudarStatus(apiId, "ready", "Passo 3: PRONTO");
-                    if (ok3) {
-                        await new Promise(r => setTimeout(r, 1500));
-                        await mudarStatus(apiId, "closed", "Passo 4: CONCLUÍDO");
-                    }
                 }
-                writeLog(`🏁 Ciclo concluído para ${nome}`, "step");
+
+                writeLog(`🏁 Ciclo completo para ${nome}`, "ok");
             } else {
-                writeLog(`❌ Erro no Passo 1: ${res.status}`, 'err');
+                const errData = await res.json();
+                writeLog(`❌ Erro no Passo 1: ${JSON.stringify(errData.errors)}`, 'err');
             }
-        } catch (e) { writeLog(`💥 Falha Crítica: ${e.message}`, 'err'); }
+        } catch (e) {
+            writeLog(`💥 Falha de conexão no Passo 1: ${e.message}`, 'err');
+        }
     }
 
-    async function mudarStatus(id, status, label) {
-        // Recriando a URL de forma limpa para evitar erros de rede
-        const statusUrl = "https://integracao.cardapioweb.com/api/partner/v1/orders/" + id + "/status";
+    async function mudarStatusComRetry(id, status, label) {
+        const url = `https://integracao.cardapioweb.com/api/partner/v1/orders/${id}/status`;
         
         try {
-            const res = await fetch(statusUrl, {
+            const res = await fetch(url, {
                 method: 'PATCH',
                 headers: { 
                     'X-API-KEY': API_KEY, 
@@ -139,15 +160,38 @@
                 writeLog(`   ↳ ${label}`, 'step');
                 return true;
             } else {
-                const errData = await res.json();
-                writeLog(`   ↳ ⚠ Erro API (${status}): ${JSON.stringify(errData)}`, 'err');
+                const errorInfo = await res.text();
+                writeLog(`   ↳ ⚠ Erro no ${status}: ${errorInfo}`, 'err');
                 return false;
             }
         } catch (e) {
-            writeLog(`   ↳ 💥 Erro de rede (CORS/PATCH) no ${status}. Verifique se a extensão Allow CORS está ativa!`, 'err');
+            writeLog(`   ↳ 🔄 Erro de rede no ${status}. Tentativa de recuperação...`, 'info');
+            // Se der erro de rede, esperamos um pouco mais e tentamos UMA última vez
+            await new Promise(r => setTimeout(r, 2000));
+            return await mudarStatusFinal(url, status, label);
+        }
+    }
+
+    async function mudarStatusFinal(url, status, label) {
+        try {
+            const res = await fetch(url, {
+                method: 'PATCH',
+                headers: { 
+                    'X-API-KEY': API_KEY, 'X-PARTNER-KEY': PARTNER_KEY, 'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ "status": status })
+            });
+            if (res.ok) {
+                writeLog(`   ↳ ${label} (Recuperado)`, 'step');
+                return true;
+            }
+            return false;
+        } catch (e) {
+            writeLog(`   ↳ 💥 Bloqueio persistente de rede no ${status}.`, 'err');
             return false;
         }
     }
 </script>
+
 </body>
 </html>
