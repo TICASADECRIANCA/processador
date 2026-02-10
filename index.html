@@ -2,45 +2,68 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Integrador Pro - Cardápio Web</title>
+    <title>Integrador Master - Cardápio Web</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
         .card { max-width: 850px; margin: auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        h2 { color: #27ae60; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-        .btn { background: #27ae60; color: white; border: none; padding: 15px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; font-size: 16px; }
-        #log { margin-top: 20px; background: #1e272e; color: #d2dae2; padding: 15px; border-radius: 8px; height: 350px; overflow-y: auto; font-family: monospace; font-size: 12px; }
-        .ok { color: #55efc4; } .err { color: #ff7675; }
+        .btn { background: #27ae60; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; margin: 5px 0; width: 100%; }
+        .btn-diag { background: #2980b9; }
+        #log { margin-top: 20px; background: #1e272e; color: #d2dae2; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+        .ok { color: #55efc4; } .err { color: #ff7675; } .info { color: #f1c40f; }
     </style>
 </head>
 <body>
 <div class="card">
-    <h2>🚀 Importador de Pedidos (Dupla Autenticação)</h2>
-    <input type="file" id="csvFile" accept=".csv" style="margin-bottom: 20px; width: 100%;">
-    <button class="btn" onclick="iniciar()">Iniciar Importação</button>
-    <div id="log">Aguardando arquivo...</div>
+    <h2>🚀 Importador Oficial - Dupla Autenticação</h2>
+    
+    <button class="btn btn-diag" onclick="consultarPagamentos()">1. Consultar IDs de Pagamento (Fazer primeiro)</button>
+    <hr>
+    <input type="file" id="csvFile" accept=".csv" style="width: 100%; margin: 10px 0;">
+    <button class="btn" onclick="iniciar()">2. Iniciar Importação de Pedidos</button>
+    
+    <div id="log">Aguardando comando...</div>
 </div>
 
 <script>
     const API_KEY = "p4ePLADE4HmFnyySyvgLAwvQUgxJPSSqZoLbpveH";
     const PARTNER_KEY = "6a9ded89-ecaf-40fd-a844-56aa00c4c1ec";
     const logDiv = document.getElementById('log');
+    let METODO_PAGAMENTO_ID = 103; // Padrão inicial
 
     function writeLog(msg, type = '') {
         logDiv.innerHTML += `<div class="${type}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
         logDiv.scrollTop = logDiv.scrollHeight;
     }
 
-    function iniciar() {
+    // FUNÇÃO PARA DESCOBRIR OS SEUS IDs REAIS
+    async function consultarPagamentos() {
+        writeLog("Consultando seus métodos de pagamento ativos...", "info");
+        try {
+            const res = await fetch("https://integracao.cardapioweb.com/api/partner/v1/merchant/payment_methods", {
+                headers: { 'X-API-KEY': API_KEY, 'X-PARTNER-KEY': PARTNER_KEY }
+            });
+            const data = await res.json();
+            writeLog("MÉTODOS ENCONTRADOS NO SEU PAINEL:", "info");
+            data.forEach(m => {
+                writeLog(`ID: ${m.id} - Nome: ${m.name} (${m.kind})`, "ok");
+                METODO_PAGAMENTO_ID = m.id; // Pega o último ID válido automaticamente para o teste
+            });
+            writeLog(`Configurado automaticamente para usar o ID: ${METODO_PAGAMENTO_ID}`, "info");
+        } catch (e) {
+            writeLog("Erro ao consultar pagamentos: " + e.message, "err");
+        }
+    }
+
+    async function iniciar() {
         const file = document.getElementById('csvFile').files[0];
         if (!file) return alert("Selecione o CSV!");
-        logDiv.innerHTML = "";
         
         Papa.parse(file, {
             header: true,
             skipEmptyLines: true,
             complete: async (results) => {
-                writeLog(`Encontrados ${results.data.length} pedidos.`);
+                writeLog(`Iniciando ${results.data.length} pedidos...`);
                 for (let i = 0; i < results.data.length; i++) {
                     await enviarPedido(results.data[i], i + 1);
                 }
@@ -49,34 +72,25 @@
     }
 
     async function enviarPedido(row, index) {
-        const totalPedido = parseFloat(row.total) || 0;
-        
-        // Gerando um ID único para cada pedido (Obrigatório pela nova DOC)
-        const orderUniqueId = "IMP_" + Date.now() + "_" + index;
-
+        const total = parseFloat(row.total) || 0;
         const payload = {
-            "order_id": orderUniqueId,
+            "order_id": "IMP_" + Date.now() + "_" + index,
             "display_id": (100 + index).toString(),
-            "order_type": "takeout", // Usei takeout para evitar erro de endereço obrigatório no delivery
+            "order_type": "takeout",
             "customer": {
-                "name": row.cliente_nome || "Cliente Importado",
-                "phone": (row.cliente_telefone || "11999999999").replace(/\D/g, '').substring(0, 11)
+                "name": row.cliente_nome || "Cliente",
+                "phone": (row.cliente_telefone || "11999999999").replace(/\D/g, '').padEnd(11, '0').substring(0, 11)
             },
-            "totals": {
-                "order_amount": totalPedido,
-                "delivery_fee": 0,
-                "additional_fee": 0,
-                "discounts": 0
-            },
+            "totals": { "order_amount": total, "delivery_fee": 0 },
             "items": [{
                 "name": row.produto_nome || "Produto",
-                "quantity": parseInt(row.quantidade) || 1,
-                "unit_price": totalPedido,
-                "total_price": totalPedido
+                "quantity": 1,
+                "unit_price": total,
+                "total_price": total
             }],
             "payments": [{
-                "total": totalPedido,
-                "payment_method_id": 103 // 103 costuma ser PIX, ajuste conforme o GET payment_methods
+                "total": total,
+                "payment_method_id": METODO_PAGAMENTO_ID // Usando o ID descoberto
             }]
         };
 
@@ -86,24 +100,17 @@
                 headers: {
                     'X-API-KEY': API_KEY,
                     'X-PARTNER-KEY': PARTNER_KEY,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(payload)
             });
 
-            const data = await res.json();
-
             if (res.status === 201) {
-                writeLog(`✅ Criado: ${row.cliente_nome} (ID: ${data.id})`, 'ok');
-                // Confirmar o pedido
-                await fetch(`https://integracao.cardapioweb.com/api/partner/v1/orders/${data.id}/status`, {
-                    method: 'PATCH',
-                    headers: { 'X-API-KEY': API_KEY, 'X-PARTNER-KEY': PARTNER_KEY, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: "confirmed" })
-                });
+                const data = await res.json();
+                writeLog(`✅ Criado: ${row.cliente_nome}`, 'ok');
             } else {
-                writeLog(`❌ Erro: ${JSON.stringify(data.errors || data.message)}`, 'err');
+                const err = await res.json();
+                writeLog(`❌ Erro: ${JSON.stringify(err.errors)}`, 'err');
             }
         } catch (e) {
             writeLog(`💥 Falha: ${e.message}`, 'err');
