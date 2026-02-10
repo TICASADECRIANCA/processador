@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Integrador Fluxo 4 Passos - Cardápio Web</title>
+    <title>Integrador CDC - Cardápio Web</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
@@ -15,15 +15,15 @@
 </head>
 <body>
 <div class="card">
-    <h2>🚀 Importador Oficial - Fluxo 4 Passos</h2>
-    <p>Fluxo: <b>Integrar → Aceitar → Pronto → Concluído</b></p>
+    <h2>🚀 Integrador CDC </h2>
+    <p>Status: <b>Correção de Erro de Rede (CORS PATCH)</b></p>
     
     <button class="btn btn-diag" onclick="consultarPagamentos()">1. Validar Meios de Pagamento</button>
     <hr>
     <input type="file" id="csvFile" accept=".csv" style="width: 100%; margin: 10px 0;">
-    <button class="btn" onclick="iniciar()">2. Iniciar Importação em Massa</button>
+    <button class="btn" onclick="iniciar()">2. Iniciar Importação</button>
     
-    <div id="log">Aguardando arquivo...</div>
+    <div id="log">Aguardando comando...</div>
 </div>
 
 <script>
@@ -38,7 +38,7 @@
     }
 
     async function consultarPagamentos() {
-        writeLog("Sincronizando métodos de pagamento...", "info");
+        writeLog("Sincronizando métodos...", "info");
         try {
             const res = await fetch("https://integracao.cardapioweb.com/api/partner/v1/merchant/payment_methods", {
                 headers: { 'X-API-KEY': API_KEY, 'X-PARTNER-KEY': PARTNER_KEY }
@@ -48,14 +48,12 @@
                 writeLog(`Disponível: ID ${m.id} (${m.name})`, "ok");
                 METODO_PAGAMENTO_ID = m.id; 
             });
-            writeLog("Configuração de pagamento pronta.", "info");
         } catch (e) { writeLog("Erro na consulta: " + e.message, "err"); }
     }
 
     async function iniciar() {
         const file = document.getElementById('csvFile').files[0];
-        if (!file) return alert("Por favor, selecione o arquivo CSV.");
-        
+        if (!file) return alert("Selecione o arquivo CSV.");
         Papa.parse(file, {
             header: true, skipEmptyLines: true,
             complete: async (results) => {
@@ -72,10 +70,9 @@
         const nome = row.cliente_nome || "Cliente";
         const order_id = "IMP_" + Date.now() + "_" + index;
 
-        // PASSO 1: CRIAÇÃO
         const payload = {
             "order_id": order_id,
-            "display_id": (500 + index).toString(),
+            "display_id": (700 + index).toString(),
             "order_type": "takeout",
             "customer": {
                 "name": nome,
@@ -87,10 +84,14 @@
         };
 
         try {
-            writeLog(`📦 [${nome}] Iniciando Passo 1: Criando...`);
+            writeLog(`📦 [${nome}] Passo 1: Criando...`);
             const res = await fetch("https://integracao.cardapioweb.com/api/partner/v1/orders", {
                 method: 'POST',
-                headers: { 'X-API-KEY': API_KEY, 'X-PARTNER-KEY': PARTNER_KEY, 'Content-Type': 'application/json' },
+                headers: { 
+                    'X-API-KEY': API_KEY, 
+                    'X-PARTNER-KEY': PARTNER_KEY, 
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify(payload)
             });
 
@@ -99,39 +100,37 @@
                 const apiId = data.id;
                 writeLog(`✅ Passo 1 OK (ID: ${apiId})`, 'ok');
 
-                // Intervalo de segurança antes de aceitar
-                await new Promise(r => setTimeout(r, 1200));
+                // Aumentando o tempo de espera para o banco de dados processar
+                await new Promise(r => setTimeout(r, 2000));
 
-                // PASSO 2: ACEITAR (confirmed)
+                // Sequência de Status
                 const ok2 = await mudarStatus(apiId, "confirmed", "Passo 2: ACEITO");
-                
                 if (ok2) {
-                    await new Promise(r => setTimeout(r, 1000));
-                    // PASSO 3: PRONTO (ready)
+                    await new Promise(r => setTimeout(r, 1500));
                     const ok3 = await mudarStatus(apiId, "ready", "Passo 3: PRONTO");
-                    
                     if (ok3) {
-                        await new Promise(r => setTimeout(r, 1000));
-                        // PASSO 4: CONCLUÍDO (closed)
+                        await new Promise(r => setTimeout(r, 1500));
                         await mudarStatus(apiId, "closed", "Passo 4: CONCLUÍDO");
                     }
                 }
                 writeLog(`🏁 Ciclo concluído para ${nome}`, "step");
             } else {
-                const err = await res.json();
-                writeLog(`❌ Erro no Passo 1 (${nome}): ${JSON.stringify(err.errors)}`, 'err');
+                writeLog(`❌ Erro no Passo 1: ${res.status}`, 'err');
             }
         } catch (e) { writeLog(`💥 Falha Crítica: ${e.message}`, 'err'); }
     }
 
     async function mudarStatus(id, status, label) {
+        // Recriando a URL de forma limpa para evitar erros de rede
+        const statusUrl = "https://integracao.cardapioweb.com/api/partner/v1/orders/" + id + "/status";
+        
         try {
-            const res = await fetch(`https://integracao.cardapioweb.com/api/partner/v1/orders/${id}/status`, {
+            const res = await fetch(statusUrl, {
                 method: 'PATCH',
                 headers: { 
                     'X-API-KEY': API_KEY, 
                     'X-PARTNER-KEY': PARTNER_KEY, 
-                    'Content-Type': 'application/json' 
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ "status": status })
             });
@@ -141,11 +140,11 @@
                 return true;
             } else {
                 const errData = await res.json();
-                writeLog(`   ↳ ⚠ Falha no ${status}: ${JSON.stringify(errData)}`, 'err');
+                writeLog(`   ↳ ⚠ Erro API (${status}): ${JSON.stringify(errData)}`, 'err');
                 return false;
             }
         } catch (e) {
-            writeLog(`   ↳ 💥 Erro de rede no ${status}`, 'err');
+            writeLog(`   ↳ 💥 Erro de rede (CORS/PATCH) no ${status}. Verifique se a extensão Allow CORS está ativa!`, 'err');
             return false;
         }
     }
