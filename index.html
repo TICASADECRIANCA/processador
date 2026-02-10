@@ -2,27 +2,28 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Integrador Fluxo Total - Cardápio Web</title>
+    <title>Integrador Fluxo 4 Passos - Cardápio Web</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
         .card { max-width: 850px; margin: auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .btn { background: #27ae60; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; margin: 5px 0; width: 100%; }
         .btn-diag { background: #2980b9; }
-        #log { margin-top: 20px; background: #1e272e; color: #d2dae2; padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+        #log { margin-top: 20px; background: #1e272e; color: #d2dae2; padding: 15px; border-radius: 8px; height: 450px; overflow-y: auto; font-family: monospace; font-size: 12px; }
         .ok { color: #55efc4; } .err { color: #ff7675; } .info { color: #f1c40f; } .step { color: #3498db; }
     </style>
 </head>
 <body>
 <div class="card">
-    <h2>🚀 Importador Oficial - Fluxo Completo (4 Passos)</h2>
+    <h2>🚀 Importador Oficial - Fluxo 4 Passos</h2>
+    <p>Fluxo: <b>Integrar → Aceitar → Pronto → Concluído</b></p>
     
-    <button class="btn btn-diag" onclick="consultarPagamentos()">1. Verificar Meios de Pagamento</button>
+    <button class="btn btn-diag" onclick="consultarPagamentos()">1. Validar Meios de Pagamento</button>
     <hr>
     <input type="file" id="csvFile" accept=".csv" style="width: 100%; margin: 10px 0;">
-    <button class="btn" onclick="iniciar()">2. Iniciar Fluxo: Integrar > Aceitar > Pronto > Concluir</button>
+    <button class="btn" onclick="iniciar()">2. Iniciar Importação em Massa</button>
     
-    <div id="log">Aguardando comando...</div>
+    <div id="log">Aguardando arquivo...</div>
 </div>
 
 <script>
@@ -37,54 +38,56 @@
     }
 
     async function consultarPagamentos() {
-        writeLog("Consultando métodos ativos...", "info");
+        writeLog("Sincronizando métodos de pagamento...", "info");
         try {
             const res = await fetch("https://integracao.cardapioweb.com/api/partner/v1/merchant/payment_methods", {
                 headers: { 'X-API-KEY': API_KEY, 'X-PARTNER-KEY': PARTNER_KEY }
             });
             const data = await res.json();
             data.forEach(m => {
-                writeLog(`ID: ${m.id} - ${m.name}`, "ok");
+                writeLog(`Disponível: ID ${m.id} (${m.name})`, "ok");
                 METODO_PAGAMENTO_ID = m.id; 
             });
-        } catch (e) { writeLog("Erro: " + e.message, "err"); }
+            writeLog("Configuração de pagamento pronta.", "info");
+        } catch (e) { writeLog("Erro na consulta: " + e.message, "err"); }
     }
 
     async function iniciar() {
         const file = document.getElementById('csvFile').files[0];
-        if (!file) return alert("Selecione o CSV!");
+        if (!file) return alert("Por favor, selecione o arquivo CSV.");
         
         Papa.parse(file, {
             header: true, skipEmptyLines: true,
             complete: async (results) => {
-                writeLog(`--- Iniciando Processamento de ${results.data.length} pedidos ---`, "info");
+                writeLog(`--- Iniciando ${results.data.length} pedidos ---`, "info");
                 for (let i = 0; i < results.data.length; i++) {
-                    await fluxoCompletoPedido(results.data[i], i + 1);
+                    await executarFluxo4Passos(results.data[i], i + 1);
                 }
             }
         });
     }
 
-    async function fluxoCompletoPedido(row, index) {
+    async function executarFluxo4Passos(row, index) {
         const total = parseFloat(row.total) || 0;
         const nome = row.cliente_nome || "Cliente";
-        
-        // PASSO 1: INTEGRAR (POST)
+        const order_id = "IMP_" + Date.now() + "_" + index;
+
+        // PASSO 1: CRIAÇÃO
         const payload = {
-            "order_id": "IMP_" + Date.now() + "_" + index,
-            "display_id": (200 + index).toString(),
+            "order_id": order_id,
+            "display_id": (500 + index).toString(),
             "order_type": "takeout",
             "customer": {
                 "name": nome,
                 "phone": (row.cliente_telefone || "11999999999").replace(/\D/g, '').padEnd(11, '0').substring(0, 11)
             },
             "totals": { "order_amount": total, "delivery_fee": 0 },
-            "items": [{ "name": row.produto_nome || "Produto", "quantity": 1, "unit_price": total, "total_price": total }],
+            "items": [{ "name": row.produto_nome || "Item", "quantity": 1, "unit_price": total, "total_price": total }],
             "payments": [{ "total": total, "payment_method_id": METODO_PAGAMENTO_ID }]
         };
 
         try {
-            writeLog(`📦 Passo 1: Integrando pedido de ${nome}...`);
+            writeLog(`📦 [${nome}] Iniciando Passo 1: Criando...`);
             const res = await fetch("https://integracao.cardapioweb.com/api/partner/v1/orders", {
                 method: 'POST',
                 headers: { 'X-API-KEY': API_KEY, 'X-PARTNER-KEY': PARTNER_KEY, 'Content-Type': 'application/json' },
@@ -93,28 +96,35 @@
 
             if (res.status === 201) {
                 const data = await res.json();
-                const id = data.id;
-                writeLog(`✅ Pedido ${id} Integrado com sucesso.`, 'ok');
+                const apiId = data.id;
+                writeLog(`✅ Passo 1 OK (ID: ${apiId})`, 'ok');
 
-                // PASSO 2: ACEITAR
-                await mudarStatus(id, "confirmed", " Passo 2: Pedido ACEITO");
+                // Intervalo de segurança antes de aceitar
+                await new Promise(r => setTimeout(r, 1200));
 
-                // PASSO 3: PRONTO
-                await mudarStatus(id, "ready", " Passo 3: Pedido PRONTO");
-
-                // PASSO 4: CONCLUÍDO
-                await mudarStatus(id, "closed", " Passo 4: Pedido CONCLUÍDO");
-
-                writeLog(`🏁 Fluxo finalizado para ${nome}`, "step");
-                writeLog("-------------------------------------------");
+                // PASSO 2: ACEITAR (confirmed)
+                const ok2 = await mudarStatus(apiId, "confirmed", "Passo 2: ACEITO");
+                
+                if (ok2) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    // PASSO 3: PRONTO (ready)
+                    const ok3 = await mudarStatus(apiId, "ready", "Passo 3: PRONTO");
+                    
+                    if (ok3) {
+                        await new Promise(r => setTimeout(r, 1000));
+                        // PASSO 4: CONCLUÍDO (closed)
+                        await mudarStatus(apiId, "closed", "Passo 4: CONCLUÍDO");
+                    }
+                }
+                writeLog(`🏁 Ciclo concluído para ${nome}`, "step");
             } else {
                 const err = await res.json();
-                writeLog(`❌ Erro na integração: ${JSON.stringify(err.errors)}`, 'err');
+                writeLog(`❌ Erro no Passo 1 (${nome}): ${JSON.stringify(err.errors)}`, 'err');
             }
         } catch (e) { writeLog(`💥 Falha Crítica: ${e.message}`, 'err'); }
     }
 
-    async function mudarStatus(id, novoStatus, mensagemLog) {
+    async function mudarStatus(id, status, label) {
         try {
             const res = await fetch(`https://integracao.cardapioweb.com/api/partner/v1/orders/${id}/status`, {
                 method: 'PATCH',
@@ -123,16 +133,21 @@
                     'X-PARTNER-KEY': PARTNER_KEY, 
                     'Content-Type': 'application/json' 
                 },
-                body: JSON.stringify({ "status": novoStatus })
+                body: JSON.stringify({ "status": status })
             });
+
             if (res.ok) {
-                writeLog(`   ↳ ${mensagemLog}`, 'step');
-                // Pequena pausa de 300ms entre status para garantir o processamento
-                await new Promise(r => setTimeout(r, 300));
+                writeLog(`   ↳ ${label}`, 'step');
+                return true;
             } else {
-                writeLog(`   ↳ ⚠ Erro ao mudar para ${novoStatus}`, 'err');
+                const errData = await res.json();
+                writeLog(`   ↳ ⚠ Falha no ${status}: ${JSON.stringify(errData)}`, 'err');
+                return false;
             }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            writeLog(`   ↳ 💥 Erro de rede no ${status}`, 'err');
+            return false;
+        }
     }
 </script>
 </body>
